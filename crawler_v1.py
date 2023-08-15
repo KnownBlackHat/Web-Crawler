@@ -87,7 +87,7 @@ class WebScrapper:
             raise httpx.InvalidURL(url)
         self.visited_url.add(url)
         self.amount += 1
-        logger.info(f"crawling {url}")
+        logger.debug(f"crawling {url}")
         html = await self._http_get(url)
         self.harvest(html, self.filter_reg)
         nodes = html.css(
@@ -140,6 +140,7 @@ async def main():
         print("Error: max_connection should be an integer")
         return
     async with httpx.AsyncClient(
+        timeout=httpx.Timeout(5.0, pool=None),
         limits=httpx.Limits(max_connections=int(sys.argv[3])),
     ) as client:
         drop = WebScrapper(client=client, url=sys.argv[1], filter_reg=sys.argv[2])
