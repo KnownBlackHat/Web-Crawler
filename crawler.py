@@ -132,12 +132,16 @@ async def main():
     Example Case to initiate crawling.
     """
     try:
-        sys.argv[2]
+        sys.argv[3]
     except IndexError:
-        print(f"Usage: {sys.argv[0]} url regex")
+        print(f"Usage: {sys.argv[0]} url regex max_connection")
+        return
+    except ValueError:
+        print("Error: max_connection should be an integer")
         return
     async with httpx.AsyncClient(
-        timeout=httpx.Timeout(None), limits=httpx.Limits(max_connections=10)
+        timeout=httpx.Timeout(None),
+        limits=httpx.Limits(max_connections=int(sys.argv[3])),
     ) as client:
         drop = WebScrapper(client=client, url=sys.argv[1], filter_reg=sys.argv[2])
         try:
