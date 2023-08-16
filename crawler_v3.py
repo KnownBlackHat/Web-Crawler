@@ -3,7 +3,7 @@ import logging
 import re
 import sys
 from datetime import datetime, timezone
-from typing import Any, Pattern, Set
+from typing import Pattern, Set
 from urllib.parse import urlparse
 
 import httpx
@@ -47,7 +47,7 @@ class WebCrawler:
         for worker in workers:
             worker.cancel()
 
-    async def on_found_links(self, urls: set[str]) -> Any:
+    async def on_found_links(self, urls: set[str]) -> None:
         new = urls - self.seen
         self.start_url.update(new)
 
@@ -55,13 +55,6 @@ class WebCrawler:
             await self.queue.put(url)
 
     def harvest(self, response: httpx.Response, regex: Pattern) -> None:
-        """
-        Extract links from parsed HTML content and add to filtered URLs.
-
-        Args:
-            html (HTMLParser): Parsed HTML content.
-            filter (Pattern): Regular expression pattern for filtering links.
-        """
         parsed_html = HTMLParser(response.content)
         nodes = parsed_html.css("a[href]")
         for node in nodes:
@@ -73,15 +66,6 @@ class WebCrawler:
                 self.filtered_url.add(url)
 
     async def _fetch_new_site(self, url: str) -> Set[str]:
-        """
-        Fetch and process a new URL for crawling.
-
-        Args:
-            url (str): The URL to fetch and process.
-
-        Returns:
-            List[str]: List of links found on the fetched page.
-        """
         if url in self.seen:
             logger.warn(f"Revisiting: {url} {self.seen=}")
             raise httpx.HTTPError("Revisit")
