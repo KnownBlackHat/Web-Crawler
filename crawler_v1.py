@@ -64,7 +64,9 @@ class WebScrapper:
         nodes = html.css("a[href]")
         for node in nodes:
             url: str = node.attributes.get("href")  # type: ignore
-            if re.match(filter, url):
+            if not url:
+                continue
+            elif re.match(filter, url):
                 logger.info(url)
                 self.filtered_url.add(url)
 
@@ -140,7 +142,7 @@ async def main():
         print("Error: max_connection should be an integer")
         return
     async with httpx.AsyncClient(
-        timeout=httpx.Timeout(5.0, pool=None),
+        timeout=httpx.Timeout(5.0, pool=None, connect=None),
         limits=httpx.Limits(max_connections=int(sys.argv[3])),
     ) as client:
         drop = WebScrapper(client=client, url=sys.argv[1], filter_reg=sys.argv[2])
