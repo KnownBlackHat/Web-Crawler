@@ -3,6 +3,7 @@ import logging
 import re
 import sys
 from datetime import datetime, timezone
+from time import perf_counter
 from typing import Pattern, Set
 from urllib.parse import urlparse
 
@@ -141,12 +142,16 @@ async def main():
         return
 
     async with httpx.AsyncClient() as client:
+        start = perf_counter()
         crawler = WebCrawler(
             worker=int(sys.argv[3]), url=sys.argv[1], client=client, regex=sys.argv[2]
         )
         try:
             await crawler()
         finally:
+            print(f"Crawled: {len(crawler.done)}")
+            print(f"Harveted: {len(crawler.filtered_url)}")
+            print(f"Time Taken: {perf_counter() - start:.2f} secs")
             with open(crawler.url_parsed.netloc, "w") as file:
                 file.writelines(line + "\n" for line in crawler.filtered_url)
 
