@@ -50,7 +50,7 @@ class WebCrawler:
 
     async def on_found_links(self, urls: set[str]) -> None:
         new = urls - self.seen
-        self.start_url.update(new)
+        self.seen.update(new)
 
         for url in new:
             await self.queue.put(url)
@@ -63,14 +63,10 @@ class WebCrawler:
             if not url:
                 continue
             elif re.match(regex, url):
-                logger.info(url)
                 self.filtered_url.add(url)
 
     async def _fetch_new_site(self, url: str) -> Set[str]:
-        if url in self.seen:
-            logger.warn(f"Revisiting: {url} {self.seen=}")
-            raise httpx.HTTPError("Revisit")
-        elif urlparse(url).path.endswith(
+        if urlparse(url).path.endswith(
             (".mp4", ".jpg", ".jpeg", ".mov", ".mkv", ".gif", ".gifv", ".png", ".webp")
         ):
             raise httpx.InvalidURL(url)
@@ -141,7 +137,7 @@ async def main():
         )
         return
 
-    async with httpx.AsyncClient() as client:
+    async with httpx.AsyncClient(timeout=httpx.Timeout(None)) as client:
         start = perf_counter()
         crawler = WebCrawler(
             worker=int(sys.argv[3]), url=sys.argv[1], client=client, regex=sys.argv[2]
@@ -149,8 +145,9 @@ async def main():
         try:
             await crawler()
         finally:
+            print()
             print(f"Crawled: {len(crawler.done)}")
-            print(f"Harveted: {len(crawler.filtered_url)}")
+            print(f"Harvested: {len(crawler.filtered_url)}")
             print(f"Time Taken: {perf_counter() - start:.2f} secs")
             with open(crawler.url_parsed.netloc, "w") as file:
                 file.writelines(line + "\n" for line in crawler.filtered_url)
