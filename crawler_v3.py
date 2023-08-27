@@ -26,6 +26,7 @@ class WebCrawler:
         url: str,
         client: httpx.AsyncClient,
         regex: str,
+        max_retry: int,
     ) -> None:
         self.queue = asyncio.Queue()
         self.num_worker = worker
@@ -34,6 +35,7 @@ class WebCrawler:
         self.filtered_url = set()
         self.start_url = {url}
         self.client = client
+        self.max_retry = max_retry
         self.reg = re.compile(regex)
         self.url_parsed = urlparse(url)
         self.rate_limit = None
@@ -53,7 +55,7 @@ class WebCrawler:
         self.seen.update(new)
 
         for url in new:
-            await self.queue.put(url)
+            await self.queue.put((url, self.max_retry))
 
     def harvest(self, response: httpx.Response, regex: Pattern) -> None:
         parsed_html = HTMLParser(response.content)
@@ -77,9 +79,14 @@ class WebCrawler:
         self.harvest(resp, self.reg)
         html = HTMLParser(resp.content)
         nodes = html.css(
-            f'a[href^="{self.url_parsed.scheme + "://" + self.url_parsed.netloc}"]'
+            f'a[href^="{self.url_parsed.scheme + "://" + self.url_parsed.netloc}"], a[href^="/"]'
         )
-        return {link.attributes.get("href").rstrip("/") for link in nodes}  # type: ignore
+        return {
+            link.attributes.get("href").rstrip("/")
+            if not link.attributes.get("href").startswith("/")  # type: ignore
+            else f'{self.url_parsed.scheme}://{self.url_parsed.netloc}/{link.attributes.get("href")}'
+            for link in nodes
+        }
 
     async def crawl(self, url: str) -> None:
         """Crawls the page"""
@@ -104,24 +111,27 @@ class WebCrawler:
             await asyncio.sleep(self.rate_limit + 1)
             logger.info("Rate Limit Ended")
             self.rate_limit = None
-        url = await self.queue.get()
+        url, retry = await self.queue.get()
         try:
             await self.crawl(url)
         except httpx.HTTPStatusError as err:
-            if err.response.status_code == 429:
-                rate_limit = err.response.headers.get("Retry-After")
-                try:
-                    self.rate_limit = float(rate_limit)
-                except ValueError:
-                    parsed_datetime = datetime.strptime(
-                        rate_limit, "%a, %d %b %Y %H:%M:%S %z"
-                    ).replace(tzinfo=timezone.utc)
-                    current_datetime = datetime.now(timezone.utc)
-                    time_delta = parsed_datetime - current_datetime
-                    self.rate_limit = time_delta.total_seconds()
+            if retry > self.max_retry:
+                logger.critical(f"Failed to process {url}")
+            rate_limit = err.response.headers.get("Retry-After")
+            try:
+                self.rate_limit = float(rate_limit)
+            except ValueError:
+                parsed_datetime = datetime.strptime(
+                    rate_limit, "%a, %d %b %Y %H:%M:%S %z"
+                ).replace(tzinfo=timezone.utc)
+                current_datetime = datetime.now(timezone.utc)
+                time_delta = parsed_datetime - current_datetime
+                self.rate_limit = time_delta.total_seconds()
 
-                logger.info(f"Got 429 at {url} putting back to queue")
-                await self.queue.put(url)
+            logger.info(
+                f"Got {err.response.status_code} at {url} Retry Attempt: {retry}"
+            )
+            await self.queue.put((url, retry - 1))
         except Exception:
             logger.error("Error at process one", exc_info=True)
         finally:
@@ -140,7 +150,11 @@ async def main():
     async with httpx.AsyncClient(timeout=httpx.Timeout(None)) as client:
         start = perf_counter()
         crawler = WebCrawler(
-            worker=int(sys.argv[3]), url=sys.argv[1], client=client, regex=sys.argv[2]
+            worker=int(sys.argv[3]),
+            url=sys.argv[1],
+            client=client,
+            regex=sys.argv[2],
+            max_retry=5,
         )
         try:
             await crawler()
